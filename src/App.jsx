@@ -1,9 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_KEY
-);
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { supabase } from "./supabaseClient";
+import Auth from "./Auth";
 
 const SERVE_TYPES = ["下回転", "横回転", "ナックル", "上回転", "巻き込み"];
 const COURSES = ["フォア前", "フォア深", "ミドル", "バック前", "バック深"];
@@ -37,6 +34,24 @@ function StatCard({ label, value, sub }) {
 }
 
 export default function App() {
+  // ---- 認証まわりの状態 ----
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // ---- 既存の試合記録まわりの状態 ----
   const [tab, setTab] = useState("record");
   const [myScore, setMyScore] = useState(0);
   const [oppScore, setOppScore] = useState(0);
@@ -60,15 +75,17 @@ export default function App() {
     const newOpp = win ? oppScore : oppScore + 1;
     if (newMy >= 11 && newMy - newOpp >= 2) { setTimeout(() => { alert(`セット${setNum}終了！`); setSetNum((n) => n + 1); setMyScore(0); setOppScore(0); }, 100); }
     supabase.from("rallies").insert({
-  player_name: playerName,
-  opp_name: oppName,
-  serve_type: serve,
-  course: course,
-  receive: receive,
-  win: win,
-  set_num: setNum,
-}).then(({ error }) => { if (error) console.error(error); });setServe(null); setCourse(null); setReceive(null);
-  }, [serve, course, receive, rallies, myScore, oppScore, setNum]);
+      player_name: playerName,
+      opp_name: oppName,
+      serve_type: serve,
+      course: course,
+      receive: receive,
+      win: win,
+      set_num: setNum,
+      user_id: session?.user?.id,
+    }).then(({ error }) => { if (error) console.error(error); });
+    setServe(null); setCourse(null); setReceive(null);
+  }, [serve, course, receive, rallies, myScore, oppScore, setNum, session]);
 
   const generateAiReport = async () => {
     const total = rallies.length;
@@ -104,6 +121,18 @@ export default function App() {
   };
 
   const serveData = SERVE_TYPES.map((s, i) => { const rs = rallies.filter((r) => r.serve === s); return { label: s, total: rs.length, value: rs.length ? Math.round(rs.filter((r) => r.win).length / rs.length * 100) : 0, color: Object.values(SERVE_COLORS)[i] }; }).filter((d) => d.total > 0);
+
+  if (authLoading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "sans-serif", color: "#666" }}>
+        読み込み中...
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Auth />;
+  }
 
   return (
     <div style={{ fontFamily: "sans-serif", maxWidth: 600, margin: "0 auto", background: "#f4f4f2", minHeight: "100vh" }}>
@@ -211,6 +240,11 @@ export default function App() {
               <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>データ管理</div>
               <button onClick={() => { const data = JSON.stringify({ rallies, playerName, oppName }, null, 2); const blob = new Blob([data], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `match_${new Date().toISOString().slice(0, 10)}.json`; a.click(); }} style={{ width: "100%", padding: 9, background: "#f4f4f2", border: "0.5px solid #ddd", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>データをエクスポート</button>
               <button onClick={() => { if (confirm("記録をすべて削除しますか？")) { setRallies([]); setMyScore(0); setOppScore(0); setSetNum(1); setAiReport(""); } }} style={{ width: "100%", padding: 9, background: "#FCEBEB", border: "0.5px solid #E24B4A", borderRadius: 8, fontSize: 13, cursor: "pointer", color: "#A32D2D", marginTop: 8 }}>リセット</button>
+            </div>
+            <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px" }}>
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>アカウント</div>
+              <div style={{ fontSize: 12, color: "#666", marginBottom: 10 }}>{session.user.email}</div>
+              <button onClick={() => supabase.auth.signOut()} style={{ width: "100%", padding: 9, background: "#f4f4f2", border: "0.5px solid #ddd", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>ログアウト</button>
             </div>
           </div>
         )}
