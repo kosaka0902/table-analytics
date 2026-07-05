@@ -92,32 +92,22 @@ export default function App() {
     if (total === 0) { alert("記録がまだありません"); return; }
     const wins = rallies.filter((r) => r.win).length;
     const serveStats = SERVE_TYPES.map((s) => { const rs = rallies.filter((r) => r.serve === s); return rs.length ? `${s}: ${rs.length}球, 得点率${Math.round(rs.filter((r) => r.win).length / rs.length * 100)}%` : null; }).filter(Boolean).join(", ");
-    const prompt = `卓球コーチとして以下の試合データを分析してください。\n選手:${playerName} vs ${oppName}\n総ポイント:${total}, 得点率:${Math.round(wins / total * 100)}%\nサービス別:${serveStats}\n\n以下の4項目で日本語レポートを作成:\n1. 試合全体の評価\n2. 得点パターン分析\n3. 弱点・改善ポイント3つ\n4. 次の練習への提案3つ`;
     setAiLoading(true); setAiReport("");
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("/api/generate-report", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, stream: true, messages: [{ role: "user", content: prompt }] }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerName, oppName, total, wins, serveStats }),
       });
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n"); buffer = lines.pop();
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") continue;
-            try { const json = JSON.parse(data); if (json.type === "content_block_delta" && json.delta?.text) { setAiReport((prev) => prev + json.delta.text); } } catch (_) {}
-          }
-        }
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || "レポート生成に失敗しました");
       }
+      const data = await response.json();
+      setAiReport(data.report);
     } catch (err) { setAiReport("エラーが発生しました: " + err.message); }
     finally { setAiLoading(false); }
+  };
   };
 
   const serveData = SERVE_TYPES.map((s, i) => { const rs = rallies.filter((r) => r.serve === s); return { label: s, total: rs.length, value: rs.length ? Math.round(rs.filter((r) => r.win).length / rs.length * 100) : 0, color: Object.values(SERVE_COLORS)[i] }; }).filter((d) => d.total > 0);
