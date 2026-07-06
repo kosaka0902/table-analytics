@@ -1,8 +1,5 @@
 // /api/finalize-video-report.js
-import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 function getSupabaseForUser(accessToken) {
   return createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_KEY, {
@@ -62,13 +59,27 @@ export default async function handler(req, res) {
 ${combinedNotes}
 `.trim();
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1200,
-      messages: [{ role: "user", content: prompt }],
+    const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1200,
+        messages: [{ role: "user", content: prompt }],
+      }),
     });
 
-    const report = message.content
+    if (!anthropicRes.ok) {
+      const errText = await anthropicRes.text();
+      throw new Error(`Anthropic API error: ${errText}`);
+    }
+
+    const data = await anthropicRes.json();
+    const report = data.content
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("\n");
