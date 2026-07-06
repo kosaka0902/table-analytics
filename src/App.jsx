@@ -51,6 +51,10 @@ export default function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  // ---- 試合(match)まわりの状態 ----
+  const [currentMatchId, setCurrentMatchId] = useState(null);
+  const [matchStarting, setMatchStarting] = useState(false);
+
   // ---- 既存の試合記録まわりの状態 ----
   const [tab, setTab] = useState("record");
   const [myScore, setMyScore] = useState(0);
@@ -66,7 +70,45 @@ export default function App() {
   const [aiLoading, setAiLoading] = useState(false);
   const reportRef = useRef();
 
+  const startMatch = useCallback(async () => {
+    setMatchStarting(true);
+    try {
+      const { data, error } = await supabase
+        .from("matches")
+        .insert({ user_id: session?.user?.id, player_name: playerName, opp_name: oppName })
+        .select()
+        .single();
+      if (error) throw error;
+      setCurrentMatchId(data.id);
+      setMyScore(0);
+      setOppScore(0);
+      setSetNum(1);
+      setRallies([]);
+      setAiReport("");
+    } catch (err) {
+      alert("試合の開始に失敗しました: " + err.message);
+    } finally {
+      setMatchStarting(false);
+    }
+  }, [session, playerName, oppName]);
+
+  const endMatch = useCallback(async () => {
+    if (!currentMatchId) return;
+    if (!confirm("この試合を終了しますか？")) return;
+    try {
+      const { error } = await supabase
+        .from("matches")
+        .update({ ended_at: new Date().toISOString() })
+        .eq("id", currentMatchId);
+      if (error) throw error;
+      setCurrentMatchId(null);
+    } catch (err) {
+      alert("試合の終了に失敗しました: " + err.message);
+    }
+  }, [currentMatchId]);
+
   const recordRally = useCallback((win) => {
+    if (!currentMatchId) { alert("先に「試合を開始」してください"); return; }
     if (!serve || !course || !receive) { alert("サービス・コース・レシーブをすべて選択してください"); return; }
     const rally = { id: Date.now(), rallyNum: rallies.length + 1, serve, course, receive, win };
     setRallies((prev) => [rally, ...prev]);
@@ -83,9 +125,10 @@ export default function App() {
       win: win,
       set_num: setNum,
       user_id: session?.user?.id,
+      match_id: currentMatchId,
     }).then(({ error }) => { if (error) console.error(error); });
     setServe(null); setCourse(null); setReceive(null);
-  }, [serve, course, receive, rallies, myScore, oppScore, setNum, session]);
+  }, [serve, course, receive, rallies, myScore, oppScore, setNum, session, currentMatchId, playerName, oppName]);
 
   const generateAiReport = async () => {
     const total = rallies.length;
@@ -141,31 +184,47 @@ export default function App() {
       <div style={{ padding: 20 }}>
         {tab === "record" && (
           <div>
-            <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{playerName}</div><div style={{ fontSize: 36, fontWeight: 500, color: "#1D9E75" }}>{myScore}</div></div>
-              <div style={{ textAlign: "center" }}><div style={{ fontSize: 22, color: "#ccc" }}>—</div><div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>第{setNum}セット</div></div>
-              <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{oppName}</div><div style={{ fontSize: 36, fontWeight: 500, color: "#E24B4A" }}>{oppScore}</div></div>
-            </div>
-            <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px" }}>
-              {[["サービスの種類", SERVE_TYPES, serve, setServe, SERVE_COLORS], ["コース", COURSES, course, setCourse, null], ["レシーブの型", RECEIVES, receive, setReceive, null]].map(([label, items, sel, setSel, colors]) => (
-                <div key={label}><div style={{ fontSize: 11, fontWeight: 500, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{label}</div><PillGroup items={items} selected={sel} onSelect={setSel} colorMap={colors} /></div>
-              ))}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
-                <button className="rbtn" onClick={() => recordRally(true)} style={{ background: "#E1F5EE", color: "#0F6E56" }}>✓ 得点</button>
-                <button className="rbtn" onClick={() => recordRally(false)} style={{ background: "#FCEBEB", color: "#A32D2D" }}>✗ 失点</button>
+            {!currentMatchId ? (
+              <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: 30, textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>🏓</div>
+                <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>試合がまだ開始されていません</div>
+                <div style={{ fontSize: 13, color: "#666", marginBottom: 18 }}>「設定」タブで選手名を確認してから、試合を開始してください</div>
+                <button onClick={startMatch} disabled={matchStarting} style={{ padding: "12px 24px", background: matchStarting ? "#ccc" : "#1D9E75", color: "white", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: matchStarting ? "default" : "pointer" }}>
+                  {matchStarting ? "開始中..." : "試合を開始"}
+                </button>
               </div>
-            </div>
-            {rallies.length > 0 && (
-              <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px", marginTop: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>直近の記録</div>
-                {rallies.slice(0, 8).map((r) => (
-                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "0.5px solid #eee", fontSize: 13 }}>
-                    <span style={{ fontSize: 11, color: "#999", width: 24 }}>#{r.rallyNum}</span>
-                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: r.win ? "#E1F5EE" : "#FCEBEB", color: r.win ? "#0F6E56" : "#A32D2D" }}>{r.win ? "得点" : "失点"}</span>
-                    <span style={{ color: "#666", flex: 1 }}>{r.serve} → {r.course} → {r.receive}</span>
+            ) : (
+              <>
+                <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{playerName}</div><div style={{ fontSize: 36, fontWeight: 500, color: "#1D9E75" }}>{myScore}</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 22, color: "#ccc" }}>—</div><div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>第{setNum}セット</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{oppName}</div><div style={{ fontSize: 36, fontWeight: 500, color: "#E24B4A" }}>{oppScore}</div></div>
+                </div>
+                <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px" }}>
+                  {[["サービスの種類", SERVE_TYPES, serve, setServe, SERVE_COLORS], ["コース", COURSES, course, setCourse, null], ["レシーブの型", RECEIVES, receive, setReceive, null]].map(([label, items, sel, setSel, colors]) => (
+                    <div key={label}><div style={{ fontSize: 11, fontWeight: 500, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{label}</div><PillGroup items={items} selected={sel} onSelect={setSel} colorMap={colors} /></div>
+                  ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
+                    <button className="rbtn" onClick={() => recordRally(true)} style={{ background: "#E1F5EE", color: "#0F6E56" }}>✓ 得点</button>
+                    <button className="rbtn" onClick={() => recordRally(false)} style={{ background: "#FCEBEB", color: "#A32D2D" }}>✗ 失点</button>
                   </div>
-                ))}
-              </div>
+                </div>
+                {rallies.length > 0 && (
+                  <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px", marginTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>直近の記録</div>
+                    {rallies.slice(0, 8).map((r) => (
+                      <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "0.5px solid #eee", fontSize: 13 }}>
+                        <span style={{ fontSize: 11, color: "#999", width: 24 }}>#{r.rallyNum}</span>
+                        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: r.win ? "#E1F5EE" : "#FCEBEB", color: r.win ? "#0F6E56" : "#A32D2D" }}>{r.win ? "得点" : "失点"}</span>
+                        <span style={{ color: "#666", flex: 1 }}>{r.serve} → {r.course} → {r.receive}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button onClick={endMatch} style={{ width: "100%", marginTop: 14, padding: 10, background: "#fff", border: "0.5px solid #E24B4A", borderRadius: 8, fontSize: 13, cursor: "pointer", color: "#A32D2D" }}>
+                  試合を終了
+                </button>
+              </>
             )}
           </div>
         )}
@@ -224,6 +283,9 @@ export default function App() {
                   <div key={label}><div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{label}</div><input type="text" value={val} onChange={(e) => setter(e.target.value)} style={{ background: "#fff", color: "#1a1a18", border: "0.5px solid #ccc", borderRadius: 6, padding: "7px 10px", fontSize: 13, width: "100%" }} /></div>
                 ))}
               </div>
+              {currentMatchId && (
+                <div style={{ fontSize: 12, color: "#A32D2D", marginTop: 10 }}>※ 試合中は名前を変更しても、今の試合には反映されません</div>
+              )}
             </div>
             <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px" }}>
               <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>データ管理</div>
