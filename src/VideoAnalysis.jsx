@@ -6,6 +6,7 @@ const MAX_FRAMES = 40;
 const BATCH_SIZE = 8;
 const FRAME_WIDTH = 640;
 const JPEG_QUALITY = 0.7;
+const SEEK_TIMEOUT_MS = 8000;
 
 function extractFrames(videoFile, { intervalSec = FRAME_INTERVAL_SEC, maxFrames = MAX_FRAMES } = {}) {
   return new Promise((resolve, reject) => {
@@ -13,13 +14,29 @@ function extractFrames(videoFile, { intervalSec = FRAME_INTERVAL_SEC, maxFrames 
     video.preload = "auto";
     video.muted = true;
     video.playsInline = true;
+    // ブラウザによっては、videoがDOMに存在しないとシークが正しく動かないため非表示で追加する
+    video.style.position = "fixed";
+    video.style.top = "-9999px";
+    video.style.width = "1px";
+    video.style.height = "1px";
+    document.body.appendChild(video);
     video.src = URL.createObjectURL(videoFile);
 
     const canvas = document.createElement("canvas");
 
+    const cleanup = () => {
+      URL.revokeObjectURL(video.src);
+      if (video.parentNode) video.parentNode.removeChild(video);
+    };
+
     const seekTo = (time) =>
-      new Promise((res) => {
+      new Promise((res, rej) => {
+        const timer = setTimeout(() => {
+          video.removeEventListener("seeked", onSeeked);
+          rej(new Error(`フレーム取得がタイムアウトしました(${time}秒付近)`));
+        }, SEEK_TIMEOUT_MS);
         const onSeeked = () => {
+          clearTimeout(timer);
           video.removeEventListener("seeked", onSeeked);
           res();
         };
@@ -27,35 +44,56 @@ function extractFrames(videoFile, { intervalSec = FRAME_INTERVAL_SEC, maxFrames 
         video.currentTime = time;
       });
 
+    const onMetadataError = () => {
+      cleanup();
+      reject(new Error("動画の読み込みに失敗しました。別の動画形式(mp4推奨)でお試しください"));
+    };
+
     video.onloadedmetadata = async () => {
       try {
-        const ratio = video.videoHeight / video.videoWidth;
+        let duration = video.duration;
+        if (!isFinite(duration) || duration <= 0) {
+          // 一部の動画形式でメタデータからdurationが取れない場合の保険
+          await new Promise((res) => {
+            video.currentTime = 1e9;
+            const onChange = () => {
+              video.removeEventListener("durationchange", onChange);
+              res();
+            };
+            video.addEventListener("durationchange", onChange);
+            setTimeout(res, 1500);
+          });
+          duration = isFinite(video.duration) ? video.duration : 120;
+        }
+
+        const ratio = video.videoHeight / video.videoWidth || 0.5625;
         canvas.width = FRAME_WIDTH;
         canvas.height = Math.round(FRAME_WIDTH * ratio);
         const ctx = canvas.getContext("2d");
 
-        const duration = video.duration;
         const timestamps = [];
         for (let t = 0; t < duration && timestamps.length < maxFrames; t += intervalSec) {
           timestamps.push(t);
         }
+        if (timestamps.length === 0) timestamps.push(0);
 
         const frames = [];
         for (const t of timestamps) {
-          await seekTo(video, t);
+          await seekTo(Math.min(t, Math.max(duration - 0.1, 0)));
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
           frames.push({ timestamp: Math.round(t), dataUrl });
         }
 
-        URL.revokeObjectURL(video.src);
+        cleanup();
         resolve(frames);
       } catch (err) {
+        cleanup();
         reject(err);
       }
     };
 
-    video.onerror = (e) => reject(e);
+    video.onerror = onMetadataError;
   });
 }
 
