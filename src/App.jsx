@@ -108,7 +108,6 @@ export default function App() {
     } catch (err) { setAiReport("エラーが発生しました: " + err.message); }
     finally { setAiLoading(false); }
   };
-  };
 
   const serveData = SERVE_TYPES.map((s, i) => { const rs = rallies.filter((r) => r.serve === s); return { label: s, total: rs.length, value: rs.length ? Math.round(rs.filter((r) => r.win).length / rs.length * 100) : 0, color: Object.values(SERVE_COLORS)[i] }; }).filter((d) => d.total > 0);
 
