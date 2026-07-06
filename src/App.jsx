@@ -1,6 +1,4 @@
-最後にApp.jsxを更新します。履歴タブの各試合カードに「動画を分析」ボタンを追加し、クリックすると動画アップロード欄が開くようにします。
-src/App.jsxの中身を全選択→削除→以下に置き換えて「Commit changes」してください。
-javascriptimport { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import Auth from "./Auth";
 import VideoAnalysis from "./VideoAnalysis";
