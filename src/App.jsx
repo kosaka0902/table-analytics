@@ -1,6 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+最後にApp.jsxを更新します。履歴タブの各試合カードに「動画を分析」ボタンを追加し、クリックすると動画アップロード欄が開くようにします。
+src/App.jsxの中身を全選択→削除→以下に置き換えて「Commit changes」してください。
+javascriptimport { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import Auth from "./Auth";
+import VideoAnalysis from "./VideoAnalysis";
 
 const SERVE_TYPES = ["下回転", "横回転", "ナックル", "上回転", "巻き込み"];
 const COURSES = ["フォア前", "フォア深", "ミドル", "バック前", "バック深"];
@@ -55,6 +58,7 @@ export default function App() {
 
   const [matchHistory, setMatchHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedMatchId, setExpandedMatchId] = useState(null);
 
   const [tab, setTab] = useState("record");
   const [myScore, setMyScore] = useState(0);
@@ -281,6 +285,7 @@ export default function App() {
                 {matchHistory.map((m) => {
                   const winRate = m.stats.total > 0 ? Math.round((m.stats.wins / m.stats.total) * 100) : null;
                   const dateLabel = new Date(m.started_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                  const isExpanded = expandedMatchId === m.id;
                   return (
                     <div key={m.id} style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "14px 18px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -293,6 +298,19 @@ export default function App() {
                       <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
                         {m.stats.total > 0 ? `${m.stats.total}球記録・得点率${winRate}%` : "まだラリー記録なし"}
                       </div>
+                      <button
+                        onClick={() => setExpandedMatchId(isExpanded ? null : m.id)}
+                        style={{ marginTop: 10, width: "100%", padding: 8, background: "#f4f4f2", border: "0.5px solid #ddd", borderRadius: 8, fontSize: 12, cursor: "pointer" }}
+                      >
+                        {isExpanded ? "動画分析を閉じる" : "🎥 動画を分析"}
+                      </button>
+                      {isExpanded && (
+                        <VideoAnalysis
+                          matchId={m.id}
+                          userId={session.user.id}
+                          accessToken={session.access_token}
+                        />
+                      )}
                     </div>
                   );
                 })}
