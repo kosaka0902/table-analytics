@@ -1,8 +1,5 @@
 // /api/analyze-video-batch.js
-import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 function getSupabaseForUser(accessToken) {
   return createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_KEY, {
@@ -56,23 +53,31 @@ export default async function handler(req, res) {
 画像に写っていないことを創作しないでください。
 `.trim();
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 500,
-      messages: [
-        {
-          role: "user",
-          content: [...imageBlocks, { type: "text", text: prompt }],
-        },
-      ],
+    const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 500,
+        messages: [{ role: "user", content: [...imageBlocks, { type: "text", text: prompt }] }],
+      }),
     });
 
-    const summaryText = message.content
+    if (!anthropicRes.ok) {
+      const errText = await anthropicRes.text();
+      throw new Error(`Anthropic API error: ${errText}`);
+    }
+
+    const data = await anthropicRes.json();
+    const summaryText = data.content
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("\n");
 
-    // RLSにより、自分の video_analyses しか読み書きできない
     const { data: current, error: fetchError } = await supabase
       .from("video_analyses")
       .select("batch_summaries")
