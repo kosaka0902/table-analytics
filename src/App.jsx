@@ -3,7 +3,7 @@ import { supabase } from "./supabaseClient";
 import Auth from "./Auth";
 import VideoAnalysis from "./VideoAnalysis";
 
-const SERVE_TYPES = ["真下回転(強)", "真下回転(弱)", "順横下回転", "順横回転", "順横上回転", "アップサーブ", "逆横上回転", "逆横回転", "逆横下回転", "ナックル", "下ナックル", "上ナックル"];
+const SERVE_TYPES = ["真下回転", "順横下回転", "順横回転", "順横上回転", "アップサーブ", "逆横上回転", "逆横回転", "逆横下回転", "ナックル", "下ナックル", "上ナックル"];
 const SERVE_LENGTHS = ["ショートサーブ", "ハーフロングサーブ", "ロングサーブ"];
 const COURSES = ["フォア前", "フォア深", "ミドル", "バック前", "バック深"];
 const RECEIVES = ["ツッツキ", "フリック", "チキータ", "ストップ", "ループ"];
