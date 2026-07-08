@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { playerName, oppName, total, wins, serveStats } = req.body;
+      const { playerName, oppName, total, wins, serveStats, lengthStats, courseStats, receiveStats } = req.body;
 
     if (!total) {
       return res.status(400).json({ error: "試合データが必要です" });
@@ -14,14 +14,17 @@ export default async function handler(req, res) {
     const prompt = `卓球コーチとして以下の試合データを分析してください。
 選手:${playerName} vs ${oppName}
 総ポイント:${total}, 得点率:${winRate}%
-サービス別:${serveStats}
+
+サービスの回転別:${serveStats || "データなし"}
+サービスの長さ別:${lengthStats || "データなし"}
+コース別:${courseStats || "データなし"}
+レシーブの型別:${receiveStats || "データなし"}
 
 以下の4項目で日本語レポートを作成:
 1. 試合全体の評価
-2. 得点パターン分析
+2. 得点パターン分析(サービス・コース・レシーブそれぞれの傾向に触れる)
 3. 弱点・改善ポイント3つ
 4. 次の練習への提案3つ`;
-
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
