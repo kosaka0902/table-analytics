@@ -181,7 +181,9 @@ async function extractFrames(videoFile, onPhaseChange) {
     let timestamps = [];
     try {
       const peaks = await detectAudioPeaks(videoFile);
+      console.log("[診断] 音声解析で見つかったピーク数:", peaks.length, "動画の長さ:", duration);
       const candidates = selectCandidates(peaks, duration, MAX_FRAMES * 2); // 動きチェックで減る分、多めに候補を残す
+      console.log("[診断] 候補時刻の数:", candidates.length);
 
       // ---- 2. 動きが全くない候補を除外 ----
       const smallCanvas = document.createElement("canvas");
