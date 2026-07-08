@@ -201,9 +201,10 @@ async function extractFrames(videoFile, onPhaseChange) {
         }
         if (confirmed.length >= MAX_FRAMES) break;
       }
-      timestamps = confirmed.sort((a, b) => a - b);
+timestamps = confirmed.sort((a, b) => a - b);
+      console.log("[診断] 動き判定を通過した候補数:", timestamps.length);
     } catch (e) {
-      console.warn("音声解析に失敗、等間隔サンプリングにフォールバックします", e);
+      console.warn("[診断] 音声解析に失敗、等間隔サンプリングにフォールバックします", e);
     }
 
     // ---- 音声解析に失敗、または候補が少なすぎる場合は等間隔サンプリングで補う ----
