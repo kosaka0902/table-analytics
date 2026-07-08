@@ -175,18 +175,20 @@ export default function App() {
     setServe(null); setServeLength(null); setCourse(null); setReceive(null);
   }, [serve, serveLength, course, receive, rallies, myScore, oppScore, setNum, session, currentMatchId, playerName, oppName]);
 
-  const generateAiReport = async () => {
+const generateAiReport = async () => {
     const total = rallies.length;
     if (total === 0) { alert("記録がまだありません"); return; }
     const wins = rallies.filter((r) => r.win).length;
     const serveStats = SERVE_TYPES.map((s) => { const rs = rallies.filter((r) => r.serve === s); return rs.length ? `${s}: ${rs.length}球, 得点率${Math.round(rs.filter((r) => r.win).length / rs.length * 100)}%` : null; }).filter(Boolean).join(", ");
     const lengthStats = SERVE_LENGTHS.map((s) => { const rs = rallies.filter((r) => r.serveLength === s); return rs.length ? `${s}: ${rs.length}球, 得点率${Math.round(rs.filter((r) => r.win).length / rs.length * 100)}%` : null; }).filter(Boolean).join(", ");
+    const courseStats = COURSES.map((c) => { const rs = rallies.filter((r) => r.course === c); return rs.length ? `${c}: ${rs.length}球, 得点率${Math.round(rs.filter((r) => r.win).length / rs.length * 100)}%` : null; }).filter(Boolean).join(", ");
+    const receiveStats = RECEIVES.map((rv) => { const rs = rallies.filter((r) => r.receive === rv); return rs.length ? `${rv}: ${rs.length}球, 得点率${Math.round(rs.filter((r) => r.win).length / rs.length * 100)}%` : null; }).filter(Boolean).join(", ");
     setAiLoading(true); setAiReport("");
     try {
       const response = await fetch("/api/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerName, oppName, total, wins, serveStats: `${serveStats} / 長さ別: ${lengthStats}` }),
+        body: JSON.stringify({ playerName, oppName, total, wins, serveStats, lengthStats, courseStats, receiveStats }),
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
