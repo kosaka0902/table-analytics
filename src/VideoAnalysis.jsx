@@ -281,7 +281,8 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
         .upload(videoPath, videoFile, { upsert: false });
       if (uploadError) throw uploadError;
 
-      const frames = await extractFrames(videoFile, setPhase);
+   const frames = await extractFrames(videoFile, setPhase);
+      setExtractedFrames(frames);
       await supabase
         .from("video_analyses")
         .update({ frame_count: frames.length, status: "analyzing" })
@@ -360,7 +361,29 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
           AIが分析中... ({progress.current}/{progress.total})
         </p>
       )}
-      {phase === "error" && <p style={{ fontSize: 13, color: "#A32D2D" }}>エラー: {errorMessage}</p>}
+     {phase === "error" && <p style={{ fontSize: 13, color: "#A32D2D" }}>エラー: {errorMessage}</p>}
+
+      {extractedFrames.length > 0 && (phase === "analyzing" || phase === "done") && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 6, color: "#666" }}>
+            抽出されたスナップショット({extractedFrames.length}枚)
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {extractedFrames.map((f, i) => (
+              <div key={i} style={{ position: "relative" }}>
+                <img
+                  src={f.dataUrl}
+                  alt={`${f.timestamp}秒`}
+                  style={{ width: 90, borderRadius: 4, border: "1px solid #ddd", display: "block" }}
+                />
+                <span style={{ position: "absolute", bottom: 2, right: 2, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", padding: "1px 4px", borderRadius: 3 }}>
+                  {f.timestamp}s
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {phase === "done" && report && (
         <div style={{ marginTop: 10 }}>
