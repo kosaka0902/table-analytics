@@ -249,6 +249,7 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [report, setReport] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [extractedFrames, setExtractedFrames] = useState([]);
   const analysisIdRef = useRef(null);
 
   const handleFileChange = (e) => {
