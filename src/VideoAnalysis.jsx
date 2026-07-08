@@ -281,7 +281,8 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
         .upload(videoPath, videoFile, { upsert: false });
       if (uploadError) throw uploadError;
 
-   const frames = await extractFrames(videoFile, setPhase);
+const frames = await extractFrames(videoFile, setPhase);
+      console.log("[診断] extractedFramesにセットする枚数:", frames.length);
       setExtractedFrames(frames);
       await supabase
         .from("video_analyses")
