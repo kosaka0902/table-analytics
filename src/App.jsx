@@ -3,10 +3,13 @@ import { supabase } from "./supabaseClient";
 import Auth from "./Auth";
 import VideoAnalysis from "./VideoAnalysis";
 
-const SERVE_TYPES = ["下回転", "横回転", "ナックル", "上回転", "巻き込み"];
+const SERVE_TYPES = ["真下回転(強)", "真下回転(弱)", "順横下回転", "順横回転", "順横上回転", "アップサーブ", "逆横上回転", "逆横回転", "逆横下回転", "ナックル", "下ナックル", "上ナックル"];
+const SERVE_LENGTHS = ["ショートサーブ", "ハーフロングサーブ", "ロングサーブ"];
 const COURSES = ["フォア前", "フォア深", "ミドル", "バック前", "バック深"];
 const RECEIVES = ["ツッツキ", "フリック", "チキータ", "ストップ", "ループ"];
-const SERVE_COLORS = { 下回転: "#1D9E75", 横回転: "#378ADD", ナックル: "#EF9F27", 上回転: "#E24B4A", 巻き込み: "#7F77DD" };
+
+const SERVE_PALETTE = ["#1D9E75", "#378ADD", "#EF9F27", "#E24B4A", "#7F77DD", "#2CA6A4", "#D65DB1", "#845EC2", "#FF9671", "#0089BA", "#B39CD0", "#4B7BEC"];
+const SERVE_COLORS = Object.fromEntries(SERVE_TYPES.map((s, i) => [s, SERVE_PALETTE[i % SERVE_PALETTE.length]]));
 
 function PillGroup({ items, selected, onSelect, colorMap }) {
   return (
@@ -63,6 +66,7 @@ export default function App() {
   const [oppScore, setOppScore] = useState(0);
   const [setNum, setSetNum] = useState(1);
   const [serve, setServe] = useState(null);
+  const [serveLength, setServeLength] = useState(null);
   const [course, setCourse] = useState(null);
   const [receive, setReceive] = useState(null);
   const [rallies, setRallies] = useState([]);
@@ -149,8 +153,8 @@ export default function App() {
 
   const recordRally = useCallback((win) => {
     if (!currentMatchId) { alert("先に「試合を開始」してください"); return; }
-    if (!serve || !course || !receive) { alert("サービス・コース・レシーブをすべて選択してください"); return; }
-    const rally = { id: Date.now(), rallyNum: rallies.length + 1, serve, course, receive, win };
+    if (!serve || !serveLength || !course || !receive) { alert("サービスの回転・長さ・コース・レシーブをすべて選択してください"); return; }
+    const rally = { id: Date.now(), rallyNum: rallies.length + 1, serve, serveLength, course, receive, win };
     setRallies((prev) => [rally, ...prev]);
     if (win) setMyScore((s) => s + 1); else setOppScore((s) => s + 1);
     const newMy = win ? myScore + 1 : myScore;
@@ -160,6 +164,7 @@ export default function App() {
       player_name: playerName,
       opp_name: oppName,
       serve_type: serve,
+      serve_length: serveLength,
       course: course,
       receive: receive,
       win: win,
@@ -167,20 +172,21 @@ export default function App() {
       user_id: session?.user?.id,
       match_id: currentMatchId,
     }).then(({ error }) => { if (error) console.error(error); });
-    setServe(null); setCourse(null); setReceive(null);
-  }, [serve, course, receive, rallies, myScore, oppScore, setNum, session, currentMatchId, playerName, oppName]);
+    setServe(null); setServeLength(null); setCourse(null); setReceive(null);
+  }, [serve, serveLength, course, receive, rallies, myScore, oppScore, setNum, session, currentMatchId, playerName, oppName]);
 
   const generateAiReport = async () => {
     const total = rallies.length;
     if (total === 0) { alert("記録がまだありません"); return; }
     const wins = rallies.filter((r) => r.win).length;
     const serveStats = SERVE_TYPES.map((s) => { const rs = rallies.filter((r) => r.serve === s); return rs.length ? `${s}: ${rs.length}球, 得点率${Math.round(rs.filter((r) => r.win).length / rs.length * 100)}%` : null; }).filter(Boolean).join(", ");
+    const lengthStats = SERVE_LENGTHS.map((s) => { const rs = rallies.filter((r) => r.serveLength === s); return rs.length ? `${s}: ${rs.length}球, 得点率${Math.round(rs.filter((r) => r.win).length / rs.length * 100)}%` : null; }).filter(Boolean).join(", ");
     setAiLoading(true); setAiReport("");
     try {
       const response = await fetch("/api/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerName, oppName, total, wins, serveStats }),
+        body: JSON.stringify({ playerName, oppName, total, wins, serveStats: `${serveStats} / 長さ別: ${lengthStats}` }),
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -192,7 +198,7 @@ export default function App() {
     finally { setAiLoading(false); }
   };
 
-  const serveData = SERVE_TYPES.map((s, i) => { const rs = rallies.filter((r) => r.serve === s); return { label: s, total: rs.length, value: rs.length ? Math.round(rs.filter((r) => r.win).length / rs.length * 100) : 0, color: Object.values(SERVE_COLORS)[i] }; }).filter((d) => d.total > 0);
+  const serveData = SERVE_TYPES.map((s, i) => { const rs = rallies.filter((r) => r.serve === s); return { label: s, total: rs.length, value: rs.length ? Math.round(rs.filter((r) => r.win).length / rs.length * 100) : 0, color: SERVE_COLORS[s] }; }).filter((d) => d.total > 0);
 
   if (authLoading) {
     return (
@@ -241,7 +247,7 @@ export default function App() {
                   <div style={{ textAlign: "center" }}><div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{oppName}</div><div style={{ fontSize: 36, fontWeight: 500, color: "#E24B4A" }}>{oppScore}</div></div>
                 </div>
                 <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px" }}>
-                  {[["サービスの種類", SERVE_TYPES, serve, setServe, SERVE_COLORS], ["コース", COURSES, course, setCourse, null], ["レシーブの型", RECEIVES, receive, setReceive, null]].map(([label, items, sel, setSel, colors]) => (
+                  {[["サービスの回転", SERVE_TYPES, serve, setServe, SERVE_COLORS], ["サービスの長さ", SERVE_LENGTHS, serveLength, setServeLength, null], ["コース", COURSES, course, setCourse, null], ["レシーブの型", RECEIVES, receive, setReceive, null]].map(([label, items, sel, setSel, colors]) => (
                     <div key={label}><div style={{ fontSize: 11, fontWeight: 500, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{label}</div><PillGroup items={items} selected={sel} onSelect={setSel} colorMap={colors} /></div>
                   ))}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
@@ -256,7 +262,7 @@ export default function App() {
                       <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "0.5px solid #eee", fontSize: 13 }}>
                         <span style={{ fontSize: 11, color: "#999", width: 24 }}>#{r.rallyNum}</span>
                         <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: r.win ? "#E1F5EE" : "#FCEBEB", color: r.win ? "#0F6E56" : "#A32D2D" }}>{r.win ? "得点" : "失点"}</span>
-                        <span style={{ color: "#666", flex: 1 }}>{r.serve} → {r.course} → {r.receive}</span>
+                        <span style={{ color: "#666", flex: 1 }}>{r.serve}({r.serveLength}) → {r.course} → {r.receive}</span>
                       </div>
                     ))}
                   </div>
@@ -335,7 +341,7 @@ export default function App() {
                     <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 14 }}>サービス種別 得点率</div>
                     {serveData.map((d) => (
                       <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                        <span style={{ fontSize: 12, color: "#666", width: 72, textAlign: "right" }}>{d.label}</span>
+                        <span style={{ fontSize: 12, color: "#666", width: 90, textAlign: "right" }}>{d.label}</span>
                         <div style={{ flex: 1, height: 8, background: "#f0f0f0", borderRadius: 4, overflow: "hidden" }}>
                           <div style={{ height: "100%", width: `${d.value}%`, background: d.color, borderRadius: 4 }} />
                         </div>
