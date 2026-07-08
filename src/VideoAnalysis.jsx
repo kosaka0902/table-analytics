@@ -1,12 +1,100 @@
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "./supabaseClient";
 
-const FRAME_INTERVAL_SEC = 30;
 const MAX_FRAMES = 40;
 const BATCH_SIZE = 8;
 const FRAME_WIDTH = 640;
 const JPEG_QUALITY = 0.7;
 const SEEK_TIMEOUT_MS = 8000;
+const FALLBACK_INTERVAL_SEC = 30; // 音声解析に失敗した場合の保険
+
+// ---- 音声から「打球っぽい音の山」を検出する ----
+async function detectAudioPeaks(videoFile) {
+  const arrayBuffer = await videoFile.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const audioCtx = new AudioCtx();
+  let audioBuffer;
+  try {
+    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    audioCtx.close();
+  }
+
+  const channelData = audioBuffer.getChannelData(0);
+  const sampleRate = audioBuffer.sampleRate;
+  const windowSize = Math.floor(sampleRate * 0.02); // 20msごとの音量を計算
+
+  const energies = [];
+  for (let i = 0; i < channelData.length; i += windowSize) {
+    let sum = 0;
+    const end = Math.min(i + windowSize, channelData.length);
+    for (let j = i; j < end; j++) sum += channelData[j] * channelData[j];
+    energies.push({ time: i / sampleRate, energy: Math.sqrt(sum / (end - i)) });
+  }
+
+  const values = energies.map((e) => e.energy);
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
+  const std = Math.sqrt(variance);
+  const threshold = mean + std * 2.2;
+
+  const minGapSec = 0.35; // 同じ打球を2回カウントしないための最小間隔
+  const peaks = [];
+  let lastPeakTime = -Infinity;
+  for (let i = 1; i < energies.length - 1; i++) {
+    const cur = energies[i];
+    if (
+      cur.energy > threshold &&
+      cur.energy >= energies[i - 1].energy &&
+      cur.energy >= energies[i + 1].energy &&
+      cur.time - lastPeakTime > minGapSec
+    ) {
+      peaks.push({ time: cur.time, energy: cur.energy });
+      lastPeakTime = cur.time;
+    }
+  }
+  return peaks;
+}
+
+// ---- 候補時刻を、動画全体にバランスよく分散させつつ最大枚数に絞る ----
+function selectCandidates(peaks, duration, maxFrames) {
+  if (peaks.length <= maxFrames) return peaks.map((p) => p.time);
+
+  const bucketCount = maxFrames;
+  const bucketDuration = duration / bucketCount;
+  const selected = [];
+  for (let b = 0; b < bucketCount; b++) {
+    const bucketStart = b * bucketDuration;
+    const bucketEnd = bucketStart + bucketDuration;
+    const inBucket = peaks.filter((p) => p.time >= bucketStart && p.time < bucketEnd);
+    if (inBucket.length === 0) continue;
+    const strongest = inBucket.reduce((a, b2) => (a.energy > b2.energy ? a : b2));
+    selected.push(strongest.time);
+  }
+  return selected;
+}
+
+// ---- 指定時刻の前後で映像に動きがあるかチェック(完全な静止=誤検出とみなす) ----
+async function hasMotionAt(video, canvas, ctx, time, duration) {
+  const t1 = Math.max(0, Math.min(time, duration - 0.2));
+  const t2 = Math.min(duration - 0.05, t1 + 0.15);
+
+  const grab = async (t) => {
+    await safeSeek(video, t);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  };
+
+  const frame1 = await grab(t1);
+  const frame2 = await grab(t2);
+
+  let diff = 0;
+  for (let i = 0; i < frame1.length; i += 4) {
+    diff += Math.abs(frame1[i] - frame2[i]);
+  }
+  const avgDiff = diff / (frame1.length / 4);
+  return avgDiff > 3; // 経験的な閾値。完全な静止画に近い場合はfalse
+}
 
 function safeSeek(video, time) {
   const t = Number.isFinite(time) ? Math.max(0, time) : 0;
@@ -38,7 +126,6 @@ function resolveDuration(video) {
       resolve(initial);
       return;
     }
-    // 一部の動画ファイルで duration が Infinity/NaN になる問題への対処
     const onTimeUpdate = () => {
       video.removeEventListener("timeupdate", onTimeUpdate);
       finish();
@@ -59,63 +146,90 @@ function resolveDuration(video) {
   });
 }
 
-function extractFrames(videoFile, { intervalSec = FRAME_INTERVAL_SEC, maxFrames = MAX_FRAMES } = {}) {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement("video");
-    video.preload = "auto";
-    video.muted = true;
-    video.playsInline = true;
-    video.style.position = "fixed";
-    video.style.top = "-9999px";
-    video.style.width = "1px";
-    video.style.height = "1px";
-    document.body.appendChild(video);
-    video.src = URL.createObjectURL(videoFile);
+async function extractFrames(videoFile, onPhaseChange) {
+  const video = document.createElement("video");
+  video.preload = "auto";
+  video.muted = true;
+  video.playsInline = true;
+  video.style.position = "fixed";
+  video.style.top = "-9999px";
+  video.style.width = "1px";
+  video.style.height = "1px";
+  document.body.appendChild(video);
+  video.src = URL.createObjectURL(videoFile);
 
+  const cleanup = () => {
+    URL.revokeObjectURL(video.src);
+    if (video.parentNode) video.parentNode.removeChild(video);
+  };
+
+  try {
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = () => reject(new Error("動画の読み込みに失敗しました。別の動画形式(mp4推奨)でお試しください"));
+    });
+
+    const duration = await resolveDuration(video);
+    const ratio = (video.videoHeight && video.videoWidth) ? video.videoHeight / video.videoWidth : 0.5625;
     const canvas = document.createElement("canvas");
+    canvas.width = FRAME_WIDTH;
+    canvas.height = Math.round(FRAME_WIDTH * ratio);
+    const ctx = canvas.getContext("2d");
 
-    const cleanup = () => {
-      URL.revokeObjectURL(video.src);
-      if (video.parentNode) video.parentNode.removeChild(video);
-    };
+    // ---- 1. 打球候補を音声から検出 ----
+    onPhaseChange("detecting");
+    let timestamps = [];
+    try {
+      const peaks = await detectAudioPeaks(videoFile);
+      const candidates = selectCandidates(peaks, duration, MAX_FRAMES * 2); // 動きチェックで減る分、多めに候補を残す
 
-    video.onloadedmetadata = async () => {
-      try {
-        const duration = await resolveDuration(video);
+      // ---- 2. 動きが全くない候補を除外 ----
+      const smallCanvas = document.createElement("canvas");
+      smallCanvas.width = 64;
+      smallCanvas.height = Math.round(64 * ratio);
+      const smallCtx = smallCanvas.getContext("2d");
 
-        const ratio = (video.videoHeight && video.videoWidth) ? video.videoHeight / video.videoWidth : 0.5625;
-        canvas.width = FRAME_WIDTH;
-        canvas.height = Math.round(FRAME_WIDTH * ratio);
-        const ctx = canvas.getContext("2d");
-
-        const timestamps = [];
-        for (let t = 0; t < duration && timestamps.length < maxFrames; t += intervalSec) {
-          timestamps.push(t);
+      const confirmed = [];
+      for (const t of candidates) {
+        try {
+          const moving = await hasMotionAt(video, smallCanvas, smallCtx, t, duration);
+          if (moving) confirmed.push(t);
+        } catch (e) {
+          // タイムアウトなどは無視してスキップ
         }
-        if (timestamps.length === 0) timestamps.push(0);
-
-        const frames = [];
-        for (const t of timestamps) {
-          const target = Math.min(t, Math.max(duration - 0.1, 0));
-          await safeSeek(video, target);
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-          frames.push({ timestamp: Math.round(t), dataUrl });
-        }
-
-        cleanup();
-        resolve(frames);
-      } catch (err) {
-        cleanup();
-        reject(err);
+        if (confirmed.length >= MAX_FRAMES) break;
       }
-    };
+      timestamps = confirmed.sort((a, b) => a - b);
+    } catch (e) {
+      console.warn("音声解析に失敗、等間隔サンプリングにフォールバックします", e);
+    }
 
-    video.onerror = () => {
-      cleanup();
-      reject(new Error("動画の読み込みに失敗しました。別の動画形式(mp4推奨)でお試しください"));
-    };
-  });
+    // ---- 音声解析に失敗、または候補が少なすぎる場合は等間隔サンプリングで補う ----
+    if (timestamps.length < 5) {
+      timestamps = [];
+      for (let t = 0; t < duration && timestamps.length < MAX_FRAMES; t += FALLBACK_INTERVAL_SEC) {
+        timestamps.push(t);
+      }
+      if (timestamps.length === 0) timestamps.push(0);
+    }
+
+    // ---- 3. 実際のフレーム画像を抜き出す ----
+    onPhaseChange("extracting");
+    const frames = [];
+    for (const t of timestamps) {
+      const target = Math.min(t, Math.max(duration - 0.1, 0));
+      await safeSeek(video, target);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+      frames.push({ timestamp: Math.round(t), dataUrl });
+    }
+
+    cleanup();
+    return frames;
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
 }
 
 function chunkArray(arr, size) {
@@ -163,8 +277,7 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
         .upload(videoPath, videoFile, { upsert: false });
       if (uploadError) throw uploadError;
 
-      setPhase("extracting");
-      const frames = await extractFrames(videoFile);
+      const frames = await extractFrames(videoFile, setPhase);
       await supabase
         .from("video_analyses")
         .update({ frame_count: frames.length, status: "analyzing" })
@@ -221,7 +334,7 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
   return (
     <div style={{ background: "#f9f9f8", borderRadius: 10, padding: 14, marginTop: 10 }}>
       <div style={{ fontSize: 12, color: "#666", marginBottom: 10 }}>
-        ※ 一定間隔のスナップショットから傾向を推定するAI分析です(ベータ機能)
+        ※ 音と動きから打球タイミングを自動検出して分析します(ベータ機能・完全な精度ではありません)
       </div>
 
       {phase === "idle" && (
@@ -236,6 +349,7 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
       )}
 
       {phase === "uploading" && <p style={{ fontSize: 13, color: "#666" }}>動画をアップロード中...</p>}
+      {phase === "detecting" && <p style={{ fontSize: 13, color: "#666" }}>打球タイミングを検出中...</p>}
       {phase === "extracting" && <p style={{ fontSize: 13, color: "#666" }}>フレームを抽出中...</p>}
       {phase === "analyzing" && (
         <p style={{ fontSize: 13, color: "#666" }}>
