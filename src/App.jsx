@@ -5,7 +5,7 @@ import VideoAnalysis from "./VideoAnalysis";
 
 const SERVE_TYPES = ["真下回転", "順横下回転", "順横回転", "順横上回転", "アップサーブ", "逆横上回転", "逆横回転", "逆横下回転", "ナックル", "下ナックル", "上ナックル"];
 const SERVE_LENGTHS = ["ショートサーブ", "ハーフロングサーブ", "ロングサーブ"];
-const COURSES = ["フォア前", "フォア深", "ミドル", "バック前", "バック深"];
+const COURSES = ["フォア前", "フォア深", "ミドル前", "ミドル深", "バック前", "バック深"];
 const RECEIVES = ["ツッツキ", "フリック", "チキータ", "ストップ", "ループ"];
 
 const SERVE_PALETTE = ["#1D9E75", "#378ADD", "#EF9F27", "#E24B4A", "#7F77DD", "#2CA6A4", "#D65DB1", "#845EC2", "#FF9671", "#0089BA", "#B39CD0", "#4B7BEC"];
