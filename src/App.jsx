@@ -3,13 +3,35 @@ import { supabase } from "./supabaseClient";
 import Auth from "./Auth";
 import VideoAnalysis from "./VideoAnalysis";
 
-const SERVE_TYPES = ["真下回転", "順横下回転", "順横回転", "順横上回転", "アップサーブ", "逆横上回転", "逆横回転", "逆横下回転", "ナックル", "下ナックル", "上ナックル"];
+const SERVE_TYPES = ["真下回転(強)", "順横下回転", "順横回転", "順横上回転", "アップサーブ", "逆横上回転", "逆横回転", "逆横下回転", "ナックル", "下ナックル", "上ナックル"];
 const SERVE_LENGTHS = ["ショートサーブ", "ハーフロングサーブ", "ロングサーブ"];
 const COURSES = ["フォア前", "フォア深", "ミドル前", "ミドル深", "バック前", "バック深"];
 const RECEIVES = ["ツッツキ", "フリック", "チキータ", "ストップ", "ループドライブ", "ドライブ", "スマッシュ", "逆チキータ"];
 
 const SERVE_PALETTE = ["#1D9E75", "#378ADD", "#EF9F27", "#E24B4A", "#7F77DD", "#2CA6A4", "#D65DB1", "#845EC2", "#FF9671", "#0089BA", "#B39CD0", "#4B7BEC"];
 const SERVE_COLORS = Object.fromEntries(SERVE_TYPES.map((s, i) => [s, SERVE_PALETTE[i % SERVE_PALETTE.length]]));
+
+const DOMINANT_HANDS = ["右利き", "左利き"];
+const RACKET_TYPES = ["シェークハンド", "ペンホルダー"];
+const RUBBER_TYPES = ["裏ソフト", "表ソフト", "粒高", "アンチ"];
+const PLAY_STYLES = ["ドライブ攻撃型", "前陣速攻型", "カット主戦型(カットマン)", "異質攻守型(ブロック主戦型)", "オールラウンド型", "守備型"];
+const YEARS_PLAYING_OPTIONS = ["1年未満", "1〜3年", "3年〜7年", "7年以上"];
+const SKILL_LEVELS = ["初級", "中級", "上級", "超級", "プロ級"];
+
+const EMPTY_PROFILE = {
+  nickname: "",
+  age: "",
+  dominant_hand: "",
+  racket_type: "",
+  forehand_rubber_type: "",
+  backhand_rubber_type: "",
+  play_style: "",
+  racket_name: "",
+  forehand_rubber_name: "",
+  backhand_rubber_name: "",
+  years_playing: "",
+  skill_level: "",
+};
 
 function PillGroup({ items, selected, onSelect, colorMap }) {
   return (
@@ -33,6 +55,38 @@ function StatCard({ label, value, sub }) {
       <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 24, fontWeight: 500, color: "#1a1a18", lineHeight: 1 }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function SelectField({ label, value, onChange, options }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{label}</div>
+      <select
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ background: "#fff", color: "#1a1a18", border: "0.5px solid #ccc", borderRadius: 6, padding: "7px 10px", fontSize: 13, width: "100%" }}
+      >
+        <option value="">未設定</option>
+        {options.map((opt) => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function TextField({ label, value, onChange, type = "text" }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{label}</div>
+      <input
+        type={type}
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ background: "#fff", color: "#1a1a18", border: "0.5px solid #ccc", borderRadius: 6, padding: "7px 10px", fontSize: 13, width: "100%" }}
+      />
     </div>
   );
 }
@@ -75,6 +129,60 @@ export default function App() {
   const [aiReport, setAiReport] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const reportRef = useRef();
+
+  // ---- プロフィールまわりの状態 ----
+  const [profile, setProfile] = useState(EMPTY_PROFILE);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSavedAt, setProfileSavedAt] = useState(null);
+
+  const loadProfile = useCallback(async () => {
+    if (!session?.user?.id) return;
+    setProfileLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        setProfile({ ...EMPTY_PROFILE, ...data });
+      }
+    } catch (err) {
+      console.error("プロフィール読み込みエラー:", err);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    if (session) loadProfile();
+  }, [session, loadProfile]);
+
+  const updateProfileField = (field, value) => {
+    setProfile((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const saveProfile = useCallback(async () => {
+    if (!session?.user?.id) return;
+    setProfileSaving(true);
+    try {
+      const payload = {
+        user_id: session.user.id,
+        ...profile,
+        age: profile.age ? parseInt(profile.age, 10) : null,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await supabase.from("profiles").upsert(payload, { onConflict: "user_id" });
+      if (error) throw error;
+      setProfileSavedAt(new Date());
+    } catch (err) {
+      alert("プロフィールの保存に失敗しました: " + err.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  }, [session, profile]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -175,7 +283,7 @@ export default function App() {
     setServe(null); setServeLength(null); setCourse(null); setReceive(null);
   }, [serve, serveLength, course, receive, rallies, myScore, oppScore, setNum, session, currentMatchId, playerName, oppName]);
 
-const generateAiReport = async () => {
+  const generateAiReport = async () => {
     const total = rallies.length;
     if (total === 0) { alert("記録がまだありません"); return; }
     const wins = rallies.filter((r) => r.win).length;
@@ -188,7 +296,7 @@ const generateAiReport = async () => {
       const response = await fetch("/api/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerName, oppName, total, wins, serveStats, lengthStats, courseStats, receiveStats }),
+        body: JSON.stringify({ playerName, oppName, total, wins, serveStats, lengthStats, courseStats, receiveStats, profile }),
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -383,6 +491,62 @@ const generateAiReport = async () => {
                 <div style={{ fontSize: 12, color: "#A32D2D", marginTop: 10 }}>※ 試合中は名前を変更しても、今の試合には反映されません</div>
               )}
             </div>
+
+            <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px" }}>
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>自己プロフィール</div>
+              <div style={{ fontSize: 11, color: "#666", marginBottom: 14 }}>
+                ここで登録した情報は、AIレポート生成時に参考情報として使われます
+              </div>
+
+              {profileLoading ? (
+                <div style={{ fontSize: 13, color: "#666" }}>読み込み中...</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <TextField label="ニックネーム" value={profile.nickname} onChange={(v) => updateProfileField("nickname", v)} />
+                    <TextField label="年齢" value={profile.age} onChange={(v) => updateProfileField("age", v)} type="number" />
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <SelectField label="利き手" value={profile.dominant_hand} onChange={(v) => updateProfileField("dominant_hand", v)} options={DOMINANT_HANDS} />
+                    <SelectField label="ラケット種類" value={profile.racket_type} onChange={(v) => updateProfileField("racket_type", v)} options={RACKET_TYPES} />
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <SelectField label="フォアラバー種類" value={profile.forehand_rubber_type} onChange={(v) => updateProfileField("forehand_rubber_type", v)} options={RUBBER_TYPES} />
+                    <SelectField label="バックラバー種類" value={profile.backhand_rubber_type} onChange={(v) => updateProfileField("backhand_rubber_type", v)} options={RUBBER_TYPES} />
+                  </div>
+
+                  <SelectField label="プレースタイル" value={profile.play_style} onChange={(v) => updateProfileField("play_style", v)} options={PLAY_STYLES} />
+
+                  <TextField label="ラケット名" value={profile.racket_name} onChange={(v) => updateProfileField("racket_name", v)} />
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <TextField label="フォアラバー名" value={profile.forehand_rubber_name} onChange={(v) => updateProfileField("forehand_rubber_name", v)} />
+                    <TextField label="バックラバー名" value={profile.backhand_rubber_name} onChange={(v) => updateProfileField("backhand_rubber_name", v)} />
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <SelectField label="卓球歴" value={profile.years_playing} onChange={(v) => updateProfileField("years_playing", v)} options={YEARS_PLAYING_OPTIONS} />
+                    <SelectField label="実力" value={profile.skill_level} onChange={(v) => updateProfileField("skill_level", v)} options={SKILL_LEVELS} />
+                  </div>
+
+                  <button
+                    onClick={saveProfile}
+                    disabled={profileSaving}
+                    style={{ marginTop: 6, width: "100%", padding: 10, background: profileSaving ? "#ccc" : "#1D9E75", color: "white", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: profileSaving ? "default" : "pointer" }}
+                  >
+                    {profileSaving ? "保存中..." : "プロフィールを保存"}
+                  </button>
+                  {profileSavedAt && (
+                    <div style={{ fontSize: 11, color: "#0F6E56", textAlign: "center" }}>
+                      保存しました({profileSavedAt.toLocaleTimeString("ja-JP")})
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 12, padding: "16px 20px" }}>
               <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>データ管理</div>
               <button onClick={() => { const data = JSON.stringify({ rallies, playerName, oppName }, null, 2); const blob = new Blob([data], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `match_${new Date().toISOString().slice(0, 10)}.json`; a.click(); }} style={{ width: "100%", padding: 9, background: "#f4f4f2", border: "0.5px solid #ddd", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>データをエクスポート</button>
