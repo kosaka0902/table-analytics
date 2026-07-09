@@ -423,6 +423,7 @@ export default function App() {
                           matchId={m.id}
                           userId={session.user.id}
                           accessToken={session.access_token}
+                          profile={profile}
                         />
                       )}
                     </div>
