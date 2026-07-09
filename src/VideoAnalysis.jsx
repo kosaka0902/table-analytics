@@ -364,6 +364,14 @@ const frames = await extractFrames(videoFile, setPhase);
       )}
      {phase === "error" && <p style={{ fontSize: 13, color: "#A32D2D" }}>エラー: {errorMessage}</p>}
 
+      {extractedFrames.length > 0 && (
+        <div style={{ marginTop: 10, background: "yellow", padding: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>
+            テスト表示: {extractedFrames.length}枚のフレームがあります
+          </div>
+        </div>
+      )}
+      {extractedFrames.length > 0 && (phase === "analyzing" || phase === "done") && (
       {extractedFrames.length > 0 && (phase === "analyzing" || phase === "done") && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 6, color: "#666" }}>
