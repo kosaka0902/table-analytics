@@ -235,6 +235,7 @@ function chunkArray(arr, size) {
 
 export default function VideoAnalysis({ matchId, userId, accessToken, profile }) {
   const [videoFile, setVideoFile] = useState(null);
+  const [selfDescription, setSelfDescription] = useState("");
   const [phase, setPhase] = useState("idle");
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [report, setReport] = useState(null);
@@ -306,7 +307,7 @@ export default function VideoAnalysis({ matchId, userId, accessToken, profile })
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ analysisId: analysisRow.id, profile }),
+        body: JSON.stringify({ analysisId: analysisRow.id, profile, selfDescription }),
       });
       if (!finalRes.ok) throw new Error("最終レポートの生成に失敗しました");
       const { report: finalReport } = await finalRes.json();
@@ -325,7 +326,7 @@ export default function VideoAnalysis({ matchId, userId, accessToken, profile })
           .eq("id", analysisIdRef.current);
       }
     }
-  }, [videoFile, matchId, userId, accessToken, profile]);
+  }, [videoFile, matchId, userId, accessToken, profile, selfDescription]);
 
   return (
     <div style={{ background: "#f9f9f8", borderRadius: 10, padding: 14, marginTop: 10 }}>
@@ -337,9 +338,23 @@ export default function VideoAnalysis({ matchId, userId, accessToken, profile })
         <>
           <input type="file" accept="video/*" onChange={handleFileChange} style={{ fontSize: 12 }} />
           {videoFile && (
-            <button onClick={runAnalysis} style={{ marginTop: 10, width: "100%", padding: 9, background: "#1D9E75", color: "white", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
-              分析を開始
-            </button>
+            <>
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+                  動画の中で、どちらが自分か教えてください(例:「手前側です」「黒いシャツです」)
+                </div>
+                <input
+                  type="text"
+                  value={selfDescription}
+                  onChange={(e) => setSelfDescription(e.target.value)}
+                  placeholder="例: 手前側、黒いシャツを着ている方"
+                  style={{ width: "100%", padding: "7px 10px", fontSize: 13, border: "0.5px solid #ccc", borderRadius: 6 }}
+                />
+              </div>
+              <button onClick={runAnalysis} style={{ marginTop: 10, width: "100%", padding: 9, background: "#1D9E75", color: "white", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
+                分析を開始
+              </button>
+            </>
           )}
         </>
       )}
