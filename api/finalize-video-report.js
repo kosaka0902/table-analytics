@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     }
     const supabase = getSupabaseForUser(accessToken);
 
-    const { analysisId } = req.body;
+    const { analysisId, profile } = req.body;
     if (!analysisId) {
       return res.status(400).json({ error: "analysisId は必須です" });
     }
@@ -43,21 +43,52 @@ export default async function handler(req, res) {
       )
       .join("\n\n");
 
-    const prompt = `
-以下は、卓球の試合動画から断続的に抽出したスナップショット(合計${analysis.frame_count}枚)を
-時系列の区間ごとに分析した所見です。これらを踏まえて、試合全体を通じた傾向・特徴・
-気になる点(弱点になりうる部分)を、選手へのフィードバックとして読みやすい形にまとめてください。
+    let profileSection = "選手プロフィール情報なし";
+    if (profile) {
+      const lines = [];
+      if (profile.nickname) lines.push(`ニックネーム: ${profile.nickname}`);
+      if (profile.age) lines.push(`年齢: ${profile.age}歳`);
+      if (profile.dominant_hand) lines.push(`利き手: ${profile.dominant_hand}`);
+      if (profile.racket_type) lines.push(`ラケット種類: ${profile.racket_type}`);
+      if (profile.forehand_rubber_type) lines.push(`フォアラバー種類: ${profile.forehand_rubber_type}`);
+      if (profile.backhand_rubber_type) lines.push(`バックラバー種類: ${profile.backhand_rubber_type}`);
+      if (profile.play_style) lines.push(`プレースタイル: ${profile.play_style}`);
+      if (profile.racket_name) lines.push(`ラケット名: ${profile.racket_name}`);
+      if (profile.forehand_rubber_name) lines.push(`フォアラバー名: ${profile.forehand_rubber_name}`);
+      if (profile.backhand_rubber_name) lines.push(`バックラバー名: ${profile.backhand_rubber_name}`);
+      if (profile.years_playing) lines.push(`卓球歴: ${profile.years_playing}`);
+      if (profile.skill_level) lines.push(`実力レベル: ${profile.skill_level}`);
+      if (lines.length > 0) profileSection = lines.join("\n");
+    }
 
-【注意事項】
-- これは断続的なスナップショットに基づく推測であり、1点ごとの正確な分析ではないことを
-  読者が理解できるよう、レポートの冒頭で簡潔に触れてください。
-- 個々の区間の所見を単純に並べるのではなく、試合全体を通じた傾向として統合してください。
-- 断定的すぎる表現は避け、「〜の傾向が見られます」「〜の可能性があります」といった
-  控えめな言い回しを使ってください。
+    const prompt = `卓球コーチとして、以下の選手プロフィールと試合動画の分析所見をもとにレポートを作成してください。
+
+【選手プロフィール】
+${profileSection}
+
+【動画分析の前提】
+以下は、卓球の試合動画から断続的に抽出したスナップショット(合計${analysis.frame_count}枚)を
+時系列の区間ごとに分析した所見です。1点ごとの正確な分析ではなく、断続的なスナップショットに基づく
+推測であることを踏まえてください。
 
 【区間ごとの所見】
 ${combinedNotes}
-`.trim();
+
+選手プロフィール(利き手・ラケット/ラバーの種類・プレースタイル・卓球歴・実力レベルなど)を踏まえて、
+その選手の特性に合った、より的確なアドバイスを意識してください。
+例えば初心者と上級者では指摘すべきポイントの深さを変え、プレースタイルに合わない戦術を提案しないようにしてください。
+
+【注意事項】
+- これは断続的なスナップショットに基づく推測であり、1点ごとの正確な分析ではないことを、
+  レポートの冒頭で簡潔に触れてください。
+- 断定的すぎる表現は避け、「〜の傾向が見られます」「〜の可能性があります」といった
+  控えめな言い回しを使ってください。
+
+以下の4項目で日本語レポートを作成してください(AI試合レポートと同じ形式です):
+1. 試合全体の評価
+2. 得点パターン分析(見て取れる範囲での傾向)
+3. 弱点・改善ポイント3つ
+4. 次の練習への提案3つ`;
 
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
