@@ -295,6 +295,8 @@ export default function VideoAnalysis({ matchId, userId, accessToken, profile })
             analysisId: analysisRow.id,
             batchIndex: i,
             frames: batches[i],
+            selfDescription,
+            profile,
           }),
         });
         if (!res.ok) throw new Error(`バッチ${i}の解析に失敗しました`);
@@ -341,13 +343,13 @@ export default function VideoAnalysis({ matchId, userId, accessToken, profile })
             <>
               <div style={{ marginTop: 10 }}>
                 <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
-                  動画の中で、どちらが自分か教えてください(例:「手前側です」「黒いシャツです」)
+                  動画の中で、どちらが自分か教えてください(服装での指定がおすすめです。セット間のコートチェンジがあっても、服装なら変わらないため)
                 </div>
                 <input
                   type="text"
                   value={selfDescription}
                   onChange={(e) => setSelfDescription(e.target.value)}
-                  placeholder="例: 手前側、黒いシャツを着ている方"
+                  placeholder="例: 黒いシャツを着ている方、赤いユニフォームの方"
                   style={{ width: "100%", padding: "7px 10px", fontSize: 13, border: "0.5px solid #ccc", borderRadius: 6 }}
                 />
               </div>
