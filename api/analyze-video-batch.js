@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     }
     const supabase = getSupabaseForUser(accessToken);
 
-    const { analysisId, batchIndex, frames } = req.body;
+    const { analysisId, batchIndex, frames, selfDescription, profile } = req.body;
     if (!analysisId || !Array.isArray(frames) || frames.length === 0) {
       return res.status(400).json({ error: "analysisId と frames は必須です" });
     }
@@ -40,9 +40,27 @@ export default async function handler(req, res) {
 
     const timestampLabel = frames.map((f) => `${f.timestamp}秒`).join(", ");
 
+    const profileHints = [];
+    if (profile?.dominant_hand) profileHints.push(`利き手: ${profile.dominant_hand}`);
+    if (profile?.racket_type) profileHints.push(`ラケット種類: ${profile.racket_type}`);
+    const profileHintText = profileHints.length > 0
+      ? `参考情報(補助的な手がかりとして): ${profileHints.join(", ")}`
+      : "";
+
+    const selfNote = (selfDescription || profileHintText)
+      ? `【動画内の「自分」の見分け方】
+${selfDescription ? selfDescription : "(服装の指定なし)"}
+${profileHintText}
+上記の情報(特に服装の指定があればそれを最優先)をもとに、どちらの選手が分析対象の「自分」かを判断し、
+できる範囲でその選手を中心に所見を述べてください。1試合の途中でコートチェンジがあった場合、
+判断が難しくなる可能性がある点に留意し、確信が持てない場合はその旨を明記してください。`
+      : "";
+
     const prompt = `
 これらは卓球の試合動画から${frames.length}枚、時刻(${timestampLabel})でスナップショットとして抽出した静止画です。
 連続した映像ではなく、断片的なスナップショットであることに注意してください。
+
+${selfNote}
 
 このバッチの画像から読み取れる範囲で、以下の観点を簡潔に箇条書きで述べてください:
 - 選手の立ち位置やフォームの傾向(わかる範囲で)
