@@ -177,9 +177,7 @@ async function extractFrames(videoFile, onPhaseChange) {
     let timestamps = [];
     try {
       const peaks = await detectAudioPeaks(videoFile);
-      console.log("[診断] 音声解析で見つかったピーク数:", peaks.length, "動画の長さ:", duration);
       const candidates = selectCandidates(peaks, duration, MAX_FRAMES * 2);
-      console.log("[診断] 候補時刻の数:", candidates.length);
 
       const smallCanvas = document.createElement("canvas");
       smallCanvas.width = 64;
@@ -197,9 +195,8 @@ async function extractFrames(videoFile, onPhaseChange) {
         if (confirmed.length >= MAX_FRAMES) break;
       }
       timestamps = confirmed.sort((a, b) => a - b);
-      console.log("[診断] 動き判定を通過した候補数:", timestamps.length);
     } catch (e) {
-      console.warn("[診断] 音声解析に失敗、等間隔サンプリングにフォールバックします", e);
+      console.warn("音声解析に失敗、等間隔サンプリングにフォールバックします", e);
     }
 
     if (timestamps.length < 5) {
@@ -236,7 +233,7 @@ function chunkArray(arr, size) {
   return chunks;
 }
 
-export default function VideoAnalysis({ matchId, userId, accessToken }) {
+export default function VideoAnalysis({ matchId, userId, accessToken, profile }) {
   const [videoFile, setVideoFile] = useState(null);
   const [phase, setPhase] = useState("idle");
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -276,7 +273,6 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
       if (uploadError) throw uploadError;
 
       const frames = await extractFrames(videoFile, setPhase);
-      console.log("[診断] extractedFramesにセットする枚数:", frames.length);
       setExtractedFrames(frames);
       await supabase
         .from("video_analyses")
@@ -310,7 +306,7 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ analysisId: analysisRow.id }),
+        body: JSON.stringify({ analysisId: analysisRow.id, profile }),
       });
       if (!finalRes.ok) throw new Error("最終レポートの生成に失敗しました");
       const { report: finalReport } = await finalRes.json();
@@ -329,7 +325,7 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
           .eq("id", analysisIdRef.current);
       }
     }
-  }, [videoFile, matchId, userId, accessToken]);
+  }, [videoFile, matchId, userId, accessToken, profile]);
 
   return (
     <div style={{ background: "#f9f9f8", borderRadius: 10, padding: 14, marginTop: 10 }}>
@@ -357,14 +353,6 @@ export default function VideoAnalysis({ matchId, userId, accessToken }) {
         </p>
       )}
       {phase === "error" && <p style={{ fontSize: 13, color: "#A32D2D" }}>エラー: {errorMessage}</p>}
-
-      {extractedFrames.length > 0 && (
-        <div style={{ marginTop: 10, background: "#FFF176", padding: 8, borderRadius: 6 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>
-            テスト表示: {extractedFrames.length}枚のフレームがあります
-          </div>
-        </div>
-      )}
 
       {extractedFrames.length > 0 && (phase === "analyzing" || phase === "done") && (
         <div style={{ marginTop: 10 }}>
