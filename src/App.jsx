@@ -17,7 +17,7 @@ const RUBBER_TYPES = ["裏ソフト", "表ソフト", "粒高", "アンチ"];
 const PLAY_STYLES = ["ドライブ攻撃型", "前陣速攻型", "カット主戦型(カットマン)", "異質攻守型(ブロック主戦型)", "オールラウンド型", "守備型"];
 const YEARS_PLAYING_OPTIONS = ["1年未満", "1〜3年", "3年〜7年", "7年以上"];
 const SKILL_LEVELS = ["初級", "中級", "上級", "超級", "プロ級"];
-
+　
 const EMPTY_PROFILE = {
   nickname: "",
   age: "",
