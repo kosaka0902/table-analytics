@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     }
     const supabase = getSupabaseForUser(accessToken);
 
-    const { analysisId, profile } = req.body;
+    const { analysisId, profile, selfDescription } = req.body;
     if (!analysisId) {
       return res.status(400).json({ error: "analysisId は必須です" });
     }
@@ -61,10 +61,17 @@ export default async function handler(req, res) {
       if (lines.length > 0) profileSection = lines.join("\n");
     }
 
+    const selfNote = selfDescription
+      ? `分析対象の選手は「${selfDescription}」として指定されています。区間ごとの所見は、この指定をもとに判断された内容です。`
+      : "分析対象の選手の見分け方(服装など)は指定されていません。区間ごとの所見は、一般的な観察に基づくものです。";
+
     const prompt = `卓球コーチとして、以下の選手プロフィールと試合動画の分析所見をもとにレポートを作成してください。
 
 【選手プロフィール】
 ${profileSection}
+
+【自分の見分け方】
+${selfNote}
 
 【動画分析の前提】
 以下は、卓球の試合動画から断続的に抽出したスナップショット(合計${analysis.frame_count}枚)を
