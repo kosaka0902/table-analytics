@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 
 const MAX_FRAMES = 40;
@@ -7,6 +7,77 @@ const FRAME_WIDTH = 640;
 const JPEG_QUALITY = 0.7;
 const SEEK_TIMEOUT_MS = 8000;
 const FALLBACK_INTERVAL_SEC = 30;
+
+function safeSeek(video, time) {
+  const t = Number.isFinite(time) ? Math.max(0, time) : 0;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      video.removeEventListener("seeked", onSeeked);
+      reject(new Error(`フレーム取得がタイムアウトしました(${t}秒付近)`));
+    }, SEEK_TIMEOUT_MS);
+    const onSeeked = () => {
+      clearTimeout(timer);
+      video.removeEventListener("seeked", onSeeked);
+      resolve();
+    };
+    video.addEventListener("seeked", onSeeked);
+    try {
+      video.currentTime = t;
+    } catch (e) {
+      clearTimeout(timer);
+      video.removeEventListener("seeked", onSeeked);
+      reject(new Error("動画の時間指定に失敗しました"));
+    }
+  });
+}
+
+function resolveDuration(video) {
+  return new Promise((resolve) => {
+    const initial = video.duration;
+    if (Number.isFinite(initial) && initial > 0) {
+      resolve(initial);
+      return;
+    }
+    const onTimeUpdate = () => {
+      video.removeEventListener("timeupdate", onTimeUpdate);
+      finish();
+    };
+    const finish = () => {
+      const d = video.duration;
+      try { video.currentTime = 0; } catch (e) {}
+      resolve(Number.isFinite(d) && d > 0 ? d : 60);
+    };
+    video.addEventListener("timeupdate", onTimeUpdate);
+    try {
+      video.currentTime = 1e10;
+    } catch (e) {
+      finish();
+      return;
+    }
+    setTimeout(finish, 2000);
+  });
+}
+
+async function hasMotionAt(video, canvas, ctx, time, duration) {
+  const t1 = Math.max(0, Math.min(time, duration - 0.2));
+  const t2 = Math.min(duration - 0.05, t1 + 0.15);
+
+  const grab = async (t) => {
+    await safeSeek(video, t);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  };
+
+  const frame1 = await grab(t1);
+  const frame2 = await grab(t2);
+
+  let diff = 0;
+  for (let i = 0; i < frame1.length; i += 4) {
+    diff += Math.abs(frame1[i] - frame2[i]);
+  }
+  const avgDiff = diff / (frame1.length / 4);
+  return avgDiff > 3;
+}
 
 async function detectAudioPeaks(videoFile) {
   const arrayBuffer = await videoFile.arrayBuffer();
@@ -70,77 +141,6 @@ function selectCandidates(peaks, duration, maxFrames) {
     selected.push(strongest.time);
   }
   return selected;
-}
-
-async function hasMotionAt(video, canvas, ctx, time, duration) {
-  const t1 = Math.max(0, Math.min(time, duration - 0.2));
-  const t2 = Math.min(duration - 0.05, t1 + 0.15);
-
-  const grab = async (t) => {
-    await safeSeek(video, t);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  };
-
-  const frame1 = await grab(t1);
-  const frame2 = await grab(t2);
-
-  let diff = 0;
-  for (let i = 0; i < frame1.length; i += 4) {
-    diff += Math.abs(frame1[i] - frame2[i]);
-  }
-  const avgDiff = diff / (frame1.length / 4);
-  return avgDiff > 3;
-}
-
-function safeSeek(video, time) {
-  const t = Number.isFinite(time) ? Math.max(0, time) : 0;
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      video.removeEventListener("seeked", onSeeked);
-      reject(new Error(`フレーム取得がタイムアウトしました(${t}秒付近)`));
-    }, SEEK_TIMEOUT_MS);
-    const onSeeked = () => {
-      clearTimeout(timer);
-      video.removeEventListener("seeked", onSeeked);
-      resolve();
-    };
-    video.addEventListener("seeked", onSeeked);
-    try {
-      video.currentTime = t;
-    } catch (e) {
-      clearTimeout(timer);
-      video.removeEventListener("seeked", onSeeked);
-      reject(new Error("動画の時間指定に失敗しました"));
-    }
-  });
-}
-
-function resolveDuration(video) {
-  return new Promise((resolve) => {
-    const initial = video.duration;
-    if (Number.isFinite(initial) && initial > 0) {
-      resolve(initial);
-      return;
-    }
-    const onTimeUpdate = () => {
-      video.removeEventListener("timeupdate", onTimeUpdate);
-      finish();
-    };
-    const finish = () => {
-      const d = video.duration;
-      try { video.currentTime = 0; } catch (e) {}
-      resolve(Number.isFinite(d) && d > 0 ? d : 60);
-    };
-    video.addEventListener("timeupdate", onTimeUpdate);
-    try {
-      video.currentTime = 1e10;
-    } catch (e) {
-      finish();
-      return;
-    }
-    setTimeout(finish, 2000);
-  });
 }
 
 async function extractFrames(videoFile, onPhaseChange) {
@@ -241,7 +241,33 @@ export default function VideoAnalysis({ matchId, userId, accessToken, profile })
   const [report, setReport] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
   const [extractedFrames, setExtractedFrames] = useState([]);
+  const [pastAnalyses, setPastAnalyses] = useState([]);
+  const [pastLoading, setPastLoading] = useState(true);
+  const [expandedPastId, setExpandedPastId] = useState(null);
   const analysisIdRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPast = async () => {
+      setPastLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("video_analyses")
+          .select("id, report, created_at, frame_count, status")
+          .eq("match_id", matchId)
+          .eq("status", "completed")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        if (!cancelled) setPastAnalyses(data || []);
+      } catch (err) {
+        console.error("過去の動画分析の読み込みエラー:", err);
+      } finally {
+        if (!cancelled) setPastLoading(false);
+      }
+    };
+    loadPast();
+    return () => { cancelled = true; };
+  }, [matchId]);
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -317,6 +343,10 @@ export default function VideoAnalysis({ matchId, userId, accessToken, profile })
       setProgress((p) => ({ ...p, current: batches.length + 1 }));
       setReport(finalReport);
       setPhase("done");
+      setPastAnalyses((prev) => [
+        { id: analysisRow.id, report: finalReport, created_at: new Date().toISOString(), frame_count: frames.length, status: "completed" },
+        ...prev,
+      ]);
     } catch (err) {
       console.error(err);
       setErrorMessage(err.message || "不明なエラーが発生しました");
@@ -335,6 +365,38 @@ export default function VideoAnalysis({ matchId, userId, accessToken, profile })
       <div style={{ fontSize: 12, color: "#666", marginBottom: 10 }}>
         ※ 音と動きから打球タイミングを自動検出して分析します(ベータ機能・完全な精度ではありません)
       </div>
+
+      {pastLoading ? (
+        <div style={{ fontSize: 12, color: "#999", marginBottom: 10 }}>過去の分析を確認中...</div>
+      ) : pastAnalyses.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: "#666", marginBottom: 6 }}>
+            過去の分析結果({pastAnalyses.length}件)
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {pastAnalyses.map((a) => {
+              const isOpen = expandedPastId === a.id;
+              const dateLabel = new Date(a.created_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+              return (
+                <div key={a.id} style={{ background: "#fff", border: "0.5px solid #ddd", borderRadius: 8, padding: 10 }}>
+                  <button
+                    onClick={() => setExpandedPastId(isOpen ? null : a.id)}
+                    style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#444", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                  >
+                    <span>{dateLabel}({a.frame_count}枚)</span>
+                    <span>{isOpen ? "閉じる ▲" : "見る ▼"}</span>
+                  </button>
+                  {isOpen && (
+                    <p style={{ fontSize: 12, color: "#444", whiteSpace: "pre-wrap", lineHeight: 1.6, marginTop: 8, maxHeight: 250, overflowY: "auto" }}>
+                      {a.report}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {phase === "idle" && (
         <>
