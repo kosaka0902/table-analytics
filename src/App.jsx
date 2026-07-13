@@ -17,7 +17,7 @@ const RUBBER_TYPES = ["裏ソフト", "表ソフト", "粒高", "アンチ"];
 const PLAY_STYLES = ["ドライブ攻撃型", "前陣速攻型", "カット主戦型(カットマン)", "異質攻守型(ブロック主戦型)", "オールラウンド型", "守備型"];
 const YEARS_PLAYING_OPTIONS = ["1年未満", "1〜3年", "3年〜7年", "7年以上"];
 const SKILL_LEVELS = ["初級", "中級", "上級", "超級", "プロ級"];
-　
+
 const EMPTY_PROFILE = {
   nickname: "",
   age: "",
@@ -304,6 +304,10 @@ export default function App() {
       }
       const data = await response.json();
       setAiReport(data.report);
+      if (currentMatchId) {
+        supabase.from("matches").update({ ai_report: data.report }).eq("id", currentMatchId)
+          .then(({ error }) => { if (error) console.error("AIレポート保存エラー:", error); });
+      }
     } catch (err) { setAiReport("エラーが発生しました: " + err.message); }
     finally { setAiLoading(false); }
   };
@@ -412,6 +416,12 @@ export default function App() {
                       <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
                         {m.stats.total > 0 ? `${m.stats.total}球記録・得点率${winRate}%` : "まだラリー記録なし"}
                       </div>
+                      {m.ai_report && (
+                        <div style={{ marginTop: 10, background: "#f9f9f8", borderRadius: 8, padding: 12 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 6, color: "#666" }}>AI試合レポート(保存済み)</div>
+                          <p style={{ fontSize: 12, color: "#444", whiteSpace: "pre-wrap", lineHeight: 1.6, maxHeight: 200, overflowY: "auto" }}>{m.ai_report}</p>
+                        </div>
+                      )}
                       <button
                         onClick={() => setExpandedMatchId(isExpanded ? null : m.id)}
                         style={{ marginTop: 10, width: "100%", padding: 8, background: "#f4f4f2", border: "0.5px solid #ddd", borderRadius: 8, fontSize: 12, cursor: "pointer" }}
