@@ -308,6 +308,10 @@ export default function App() {
         supabase.from("matches").update({ ai_report: data.report }).eq("id", currentMatchId)
           .then(({ error }) => { if (error) console.error("AIレポート保存エラー:", error); });
       }
+      if (currentMatchId) {
+        supabase.from("matches").update({ ai_report: data.report }).eq("id", currentMatchId)
+          .then(({ error }) => { if (error) console.error("AIレポート保存エラー:", error); });
+      }
     } catch (err) { setAiReport("エラーが発生しました: " + err.message); }
     finally { setAiLoading(false); }
   };
