@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import Auth from "./Auth";
 import VideoAnalysis from "./VideoAnalysis";
+import Board from "./Board";
 
 const SERVE_TYPES = ["真下回転(強)", "順横下回転", "順横回転", "順横上回転", "アップサーブ", "逆横上回転", "逆横回転", "逆横下回転", "ナックル", "下ナックル", "上ナックル"];
 const SERVE_LENGTHS = ["ショートサーブ", "ハーフロングサーブ", "ロングサーブ"];
@@ -109,6 +110,9 @@ export default function App() {
   }, []);
 
   const [currentMatchId, setCurrentMatchId] = useState(null);
+  // レポート保存専用のID。試合終了(endMatch)でcurrentMatchIdがnullになっても
+  // これは保持し続けるので、試合後にAIレポートを生成してもai_reportが保存される
+  const [reportMatchId, setReportMatchId] = useState(null);
   const [matchStarting, setMatchStarting] = useState(false);
 
   const [matchHistory, setMatchHistory] = useState([]);
@@ -232,6 +236,7 @@ export default function App() {
         .single();
       if (error) throw error;
       setCurrentMatchId(data.id);
+      setReportMatchId(data.id);
       setMyScore(0);
       setOppScore(0);
       setSetNum(1);
@@ -304,8 +309,8 @@ export default function App() {
       }
       const data = await response.json();
       setAiReport(data.report);
-      if (currentMatchId) {
-        supabase.from("matches").update({ ai_report: data.report }).eq("id", currentMatchId)
+      if (reportMatchId) {
+        supabase.from("matches").update({ ai_report: data.report }).eq("id", reportMatchId)
           .then(({ error }) => { if (error) console.error("AIレポート保存エラー:", error); });
       }
     } catch (err) { setAiReport("エラーが発生しました: " + err.message); }
@@ -337,7 +342,7 @@ export default function App() {
         <span style={{ fontSize: 12, background: "#E1F5EE", color: "#0F6E56", padding: "3px 10px", borderRadius: 20, fontWeight: 500 }}>{rallies.length}球記録済</span>
       </div>
       <div style={{ display: "flex", borderBottom: "0.5px solid #ddd", background: "#fff", padding: "0 20px" }}>
-        {[["record", "記録"], ["history", "履歴"], ["report", "レポート"], ["settings", "設定"]].map(([id, label]) => (
+        {[["record", "記録"], ["history", "履歴"], ["board", "掲示板"], ["report", "レポート"], ["settings", "設定"]].map(([id, label]) => (
           <button key={id} className={`tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -442,6 +447,9 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+        {tab === "board" && (
+          <Board session={session} profile={profile} />
         )}
         {tab === "report" && (
           <div>
